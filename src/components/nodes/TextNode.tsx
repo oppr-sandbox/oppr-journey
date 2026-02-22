@@ -94,7 +94,7 @@ function TextNode({ id, data, selected }: NodeProps) {
             )}
           </div>
         )}
-        <div className="h-full overflow-y-auto px-3 py-2">
+        <div className="h-full flex flex-col px-3 py-2">
           {editing ? (
             <textarea
               ref={textareaRef}
@@ -106,12 +106,12 @@ function TextNode({ id, data, selected }: NodeProps) {
                 // Allow enter for newlines, don't propagate to React Flow
                 e.stopPropagation();
               }}
-              className="nodrag nowheel h-full w-full resize-none border-none bg-transparent text-sm text-zinc-800 outline-none dark:text-zinc-200"
+              className="nodrag nowheel flex-1 w-full resize-none border-none bg-transparent text-sm text-zinc-800 outline-none overflow-y-auto dark:text-zinc-200"
               style={{ minHeight: "2em" }}
               placeholder="Enter annotation..."
             />
           ) : (
-            <p className="whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
+            <p className="whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300 overflow-y-auto">
               {text || "Double-click to edit"}
             </p>
           )}

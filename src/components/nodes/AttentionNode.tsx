@@ -66,7 +66,7 @@ function AttentionNode({ id, data, selected }: NodeProps) {
         }`}
         onDoubleClick={() => setEditing(true)}
       >
-        <div className="flex h-full items-start gap-2 overflow-y-auto px-3 py-2">
+        <div className="flex h-full gap-2 px-3 py-2">
           {/* Warning icon */}
           <svg
             width="16"
@@ -81,7 +81,7 @@ function AttentionNode({ id, data, selected }: NodeProps) {
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 h-full flex flex-col">
             {editing ? (
               <textarea
                 ref={textareaRef}
@@ -92,12 +92,12 @@ function AttentionNode({ id, data, selected }: NodeProps) {
                   if (e.key === "Escape") handleSave();
                   e.stopPropagation();
                 }}
-                className="nodrag nowheel h-full w-full resize-none border-none bg-transparent text-sm text-red-800 outline-none dark:text-red-200"
+                className="nodrag nowheel flex-1 w-full resize-none border-none bg-transparent text-sm text-red-800 outline-none overflow-y-auto dark:text-red-200"
                 style={{ minHeight: "2em" }}
                 placeholder="Describe the issue..."
               />
             ) : (
-              <p className="whitespace-pre-wrap text-sm font-medium text-red-800 dark:text-red-200">
+              <p className="whitespace-pre-wrap text-sm font-medium text-red-800 dark:text-red-200 overflow-y-auto">
                 {text || "Double-click to edit"}
               </p>
             )}

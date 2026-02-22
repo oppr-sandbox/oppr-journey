@@ -13,9 +13,10 @@ interface AIChatProps {
 }
 
 const QUICK_ACTIONS = [
-  { label: "Analyze gaps", prompt: "Analyze this customer journey for gaps, missing screens, and dead-end flows. What screens or connections are likely missing? Propose the changes as structured JSON so I can apply them." },
-  { label: "Check terminology", prompt: "Review the terminology used across all screens in this journey. Identify any naming inconsistencies or confusing labels. If you find issues, propose relabelEdge changes as structured JSON." },
-  { label: "Suggest improvements", prompt: "Based on the current journey map, suggest specific improvements to streamline the user experience. Propose all changes as structured JSON so I can apply them to the canvas." },
+  { label: "Full analysis", prompt: "Do a comprehensive analysis of this customer journey. Walk through every persona's path, add yellow notes with observations, red attention markers for friction points, and green improvement boxes for recommendations. Connect screens in logical flow order. Be thorough — annotate every screen from each relevant persona's perspective. Propose all changes as structured JSON." },
+  { label: "Analyze gaps", prompt: "Analyze this customer journey for gaps, missing screens, and dead-end flows. What screens or connections are likely missing? Add red attention markers at dead-ends and propose new screens to fill gaps. Propose the changes as structured JSON so I can apply them." },
+  { label: "Check terminology", prompt: "Review the terminology used across all screens in this journey. Identify any naming inconsistencies or confusing labels. Add yellow notes highlighting mismatches and red attention markers for the worst offenders. If you find issues, propose relabelEdge changes as structured JSON." },
+  { label: "Per-persona review", prompt: "Analyze this journey from each persona's perspective separately. For EACH persona, walk through their path step by step and add yellow notes (observations), red attention markers (friction/issues), and green improvement suggestions at every relevant screen. Be thorough and comprehensive. Propose all changes as structured JSON." },
 ];
 
 export default function AIChat({ boardId }: AIChatProps) {
@@ -144,18 +145,27 @@ export default function AIChat({ boardId }: AIChatProps) {
                         {proposals.length} proposed change{proposals.length !== 1 ? "s" : ""}
                       </span>
                     </div>
-                    <div className="mb-2 space-y-0.5">
-                      {proposals.slice(0, 5).map((p: any, i: number) => (
-                        <p key={i} className="text-[9px] text-green-600 dark:text-green-400">
+                    <div className="mb-2 space-y-0.5 max-h-40 overflow-y-auto">
+                      {proposals.slice(0, 10).map((p: any, i: number) => (
+                        <p key={i} className={`text-[9px] ${
+                          p.action === "addAttention" ? "text-red-600 dark:text-red-400" :
+                          p.action === "addImprovement" ? "text-emerald-600 dark:text-emerald-400" :
+                          p.action === "addNote" ? "text-amber-600 dark:text-amber-400" :
+                          p.action === "removeNode" || p.action === "removeEdge" ? "text-red-500 dark:text-red-400" :
+                          "text-green-600 dark:text-green-400"
+                        }`}>
                           {p.action === "addNode" && `+ Add screen: "${p.label}"`}
                           {p.action === "addEdge" && `+ Connect: ${p.source} → ${p.target}${p.label ? ` [${p.label}]` : ""}`}
+                          {p.action === "addNote" && `📝 Note${p.persona ? ` (${p.persona})` : ""}: "${(p.text || "").slice(0, 50)}..."`}
+                          {p.action === "addAttention" && `⚠ Issue${p.persona ? ` (${p.persona})` : ""}: "${(p.text || "").slice(0, 50)}..."`}
+                          {p.action === "addImprovement" && `✨ Improve${p.persona ? ` (${p.persona})` : ""}: "${(p.text || "").slice(0, 50)}..."`}
                           {p.action === "relabelEdge" && `~ Relabel edge: "${p.newLabel}"`}
                           {p.action === "removeNode" && `- Remove node: ${p.nodeId}`}
                           {p.action === "removeEdge" && `- Remove edge: ${p.source} → ${p.target}`}
                         </p>
                       ))}
-                      {proposals.length > 5 && (
-                        <p className="text-[9px] text-green-500">...and {proposals.length - 5} more</p>
+                      {proposals.length > 10 && (
+                        <p className="text-[9px] text-green-500">...and {proposals.length - 10} more</p>
                       )}
                     </div>
                     <button

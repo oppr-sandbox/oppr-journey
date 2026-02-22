@@ -17,6 +17,8 @@ interface ToolbarProps {
   onAddText: () => void;
   onAddAttention: () => void;
   onAddImprovement: () => void;
+  onAddDivider: () => void;
+  onAddSection: () => void;
   onFitView: () => void;
   currentVersion?: string;
   improvementFilter: ImprovementFilter;
@@ -31,6 +33,8 @@ export default function Toolbar({
   onAddText,
   onAddAttention,
   onAddImprovement,
+  onAddDivider,
+  onAddSection,
   onFitView,
   currentVersion,
   improvementFilter,
@@ -157,6 +161,30 @@ export default function Toolbar({
             <path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-2.26C8.19 13.47 7 11.38 7 9a7 7 0 0 1 5-7z" />
           </svg>
           Improve
+        </button>
+
+        {/* Add divider */}
+        <button
+          onClick={onAddDivider}
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          title="Add divider line"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="2" y1="12" x2="22" y2="12" strokeDasharray="4 3" />
+          </svg>
+          Divider
+        </button>
+
+        {/* Add section */}
+        <button
+          onClick={onAddSection}
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-500 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+          title="Add section zone"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="4 3">
+            <rect x="3" y="3" width="18" height="18" rx="3" />
+          </svg>
+          Section
         </button>
 
         {/* Improvement filter */}

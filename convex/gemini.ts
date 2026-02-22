@@ -31,22 +31,32 @@ export const analyzeJourney = action({
     // Build context string
     const screenshotNodes = nodes.filter((n: any) => n.type === "screenshot");
     const textNodes = nodes.filter((n: any) => n.type === "text");
+    const attentionNodes = nodes.filter((n: any) => n.type === "attention");
+    const improvementNodes = nodes.filter((n: any) => n.type === "improvement");
 
     const screenDescriptions = screenshotNodes.map((n: any) => {
       const persona = n.data?.personaId
         ? personas.find((p: any) => p._id === n.data.personaId)
         : null;
-      return `- "${n.data?.label || n.nodeId}" (platform: ${n.data?.platform || "unknown"}${persona ? `, persona: ${persona.name}` : ""})`;
+      return `- "${n.data?.label || n.nodeId}" (platform: ${n.data?.platform || "unknown"}${persona ? `, persona: ${persona.name}` : ""}, nodeId: ${n.nodeId})`;
     }).join("\n");
 
     const connectionDescriptions = edges.map((e: any) => {
-      const source = screenshotNodes.find((n: any) => n.nodeId === e.source);
-      const target = screenshotNodes.find((n: any) => n.nodeId === e.target);
-      return `- "${source?.data?.label || e.source}" → "${target?.data?.label || e.target}"${e.label ? ` [${e.label}]` : ""}`;
+      const source = nodes.find((n: any) => n.nodeId === e.source);
+      const target = nodes.find((n: any) => n.nodeId === e.target);
+      return `- "${source?.data?.label || source?.data?.text || e.source}" → "${target?.data?.label || target?.data?.text || e.target}"${e.label ? ` [${e.label}]` : ""}`;
     }).join("\n");
 
     const annotationDescriptions = textNodes.map((n: any) => {
       return `- Note: "${n.data?.text || ""}"`;
+    }).join("\n");
+
+    const attentionDescriptions = attentionNodes.map((n: any) => {
+      return `- Issue: "${n.data?.text || ""}"`;
+    }).join("\n");
+
+    const improvementDescriptions = improvementNodes.map((n: any) => {
+      return `- Improvement: "${n.data?.text || ""}"`;
     }).join("\n");
 
     const personaDescriptions = personas.map((p: any) => {
@@ -67,21 +77,49 @@ export const analyzeJourney = action({
       `  - nodeId: "${n.nodeId}" → label: "${n.data?.label || ""}"`
     ).join("\n");
 
+    // Build a position reference so Gemini knows spatial layout
+    const nodePositionList = nodes.map((n: any) =>
+      `  - nodeId: "${n.nodeId}" → label: "${n.data?.label || n.data?.text || ""}" (type: ${n.type}, x: ${Math.round(n.position.x)}, y: ${Math.round(n.position.y)})`
+    ).join("\n");
+
     const systemPrompt = `You are an expert UX analyst specializing in customer journey mapping across multi-platform enterprise software (OPPR platforms). You help teams analyze and improve cross-platform customer journeys.
 
 Your capabilities:
 1. Identify terminology mismatches across screens (e.g. "start" vs "initiate" vs "activate")
 2. Find missing screens or dead-end flows where users might get stuck
-3. Analyze per-persona experience (is each persona's path clear and efficient?)
+3. Analyze per-persona experience — walk through each persona's path and annotate friction points
 4. Suggest specific improvements with references to actual screen names
 5. Propose canvas changes as structured JSON that can be applied automatically
+6. Add yellow annotation notes, red attention/issue markers, and green improvement boxes to provide rich visual feedback on the journey map
+
+## Canvas Node Types
+The journey map canvas supports these node types:
+- **Screenshot nodes**: Actual screen captures with labels and platform tags
+- **Text nodes (yellow)**: Annotation notes — use these for observations, context, persona-specific notes
+- **Attention nodes (red)**: Issue markers — use these for problems, friction points, UX issues, dead ends
+- **Improvement nodes (green)**: Improvement suggestions — use these for actionable recommendations
 
 ## Tone
 Be constructive and supportive. Frame issues as opportunities — use "users may find this confusing because..." rather than "this is broken". Acknowledge what works well before suggesting changes. Your goal is to guide the team, not criticize.
 
-IMPORTANT: Whenever you suggest adding screens, connections, or relabeling edges, you MUST ALWAYS include a structured JSON proposals block so the user can apply your changes directly to the canvas with one click. Do not just describe changes in text — always provide the JSON.
+## How to provide comprehensive analysis
+When analyzing a journey, you should:
+1. Walk through EACH persona's path and identify where they succeed and where they get stuck
+2. For EACH screen, consider adding:
+   - A yellow **note** with persona-specific observations (e.g. "Admin sees this first after login")
+   - A red **attention** marker for any UX issues or friction points found
+   - A green **improvement** suggestion with actionable recommendations
+3. Connect screens in logical flow order using appropriate directional edges
+4. Add missing screens where the journey has gaps
 
-Available node IDs (use these exact IDs in your proposals):
+IMPORTANT: Whenever you suggest changes, you MUST ALWAYS include a structured JSON proposals block so the user can apply your changes directly to the canvas with one click. Do not just describe changes in text — always provide the JSON.
+
+Be generous with annotations! Add notes, attention markers, and improvement boxes for every meaningful observation. The goal is a richly annotated journey map that tells the full story.
+
+Available node IDs and positions (use these exact IDs in your proposals):
+${nodePositionList || "(no nodes yet)"}
+
+Available screenshot node IDs (for edges and references):
 ${nodeIdList || "(no nodes yet)"}
 
 When proposing changes, format them as JSON in a code block with this structure:
@@ -90,6 +128,9 @@ When proposing changes, format them as JSON in a code block with this structure:
   "proposals": [
     { "action": "addNode", "label": "Screen Name", "platform": "admin", "afterNode": "existing-node-id", "connectionLabel": "label for auto-created edge" },
     { "action": "addEdge", "source": "existing-node-id", "target": "existing-node-id", "label": "Connection Label" },
+    { "action": "addNote", "text": "Observation or context note", "nearNode": "existing-node-id", "persona": "Persona Name (optional)" },
+    { "action": "addAttention", "text": "Issue or friction point description", "nearNode": "existing-node-id", "persona": "Persona Name (optional)" },
+    { "action": "addImprovement", "text": "Actionable improvement suggestion", "nearNode": "existing-node-id", "persona": "Persona Name (optional)" },
     { "action": "relabelEdge", "edgeSource": "node-id", "edgeTarget": "node-id", "newLabel": "New Label" },
     { "action": "removeNode", "nodeId": "node-id-to-remove" },
     { "action": "removeEdge", "source": "node-id", "target": "node-id" }
@@ -97,11 +138,24 @@ When proposing changes, format them as JSON in a code block with this structure:
 }
 \`\`\`
 
+### Proposal types explained:
+- **addNode**: Add a proposed new screen (creates a yellow text node placeholder). Use "afterNode" to position it near an existing screen and auto-connect.
+- **addEdge**: Connect two existing nodes with a labeled edge. The system will automatically choose the correct handle direction (top/bottom/left/right) based on node positions.
+- **addNote**: Add a yellow annotation box near a screen. Use "nearNode" to place it near the relevant screen. Include "persona" to tag which persona this note applies to.
+- **addAttention**: Add a red attention/issue box near a screen. Same positioning as addNote. Use for problems, friction points, dead-ends.
+- **addImprovement**: Add a green improvement box near a screen. Same positioning as addNote. Use for actionable recommendations.
+- **relabelEdge**: Change the label on an existing edge.
+- **removeNode**: Remove an existing node and its connections.
+- **removeEdge**: Remove a specific edge.
+
 Rules for proposals:
 - Use the exact nodeId values listed above (e.g. "screenshot-abc123"), NOT screen labels
-- For "afterNode" in addNode, use the nodeId of the screen the new node should appear after (it will be positioned below and auto-connected)
+- For "afterNode" in addNode, use the nodeId of the screen the new node should appear after
+- For "nearNode" in addNote/addAttention/addImprovement, use the nodeId of the screen to annotate
 - For addEdge source/target, use nodeIds
-- Always include the proposals JSON block alongside your analysis text`;
+- Always include the proposals JSON block alongside your analysis text
+- Include persona name in addNote/addAttention/addImprovement when the observation is persona-specific
+- Create MULTIPLE notes/attention/improvement boxes — one per distinct observation, not one giant block`;
 
     // Inject tool context
     const toolContext = await getToolContext(ctx, args.boardId);
@@ -115,8 +169,14 @@ ${screenDescriptions || "(none)"}
 ### Connections (${edges.length}):
 ${connectionDescriptions || "(none)"}
 
-### Annotations:
+### Annotations (yellow notes):
 ${annotationDescriptions || "(none)"}
+
+### Attention / Issues (red markers):
+${attentionDescriptions || "(none)"}
+
+### Improvements (green suggestions):
+${improvementDescriptions || "(none)"}
 
 ### Personas (${personas.length}):
 ${personaDescriptions || "(none defined)"}
@@ -144,7 +204,7 @@ ${unresolvedComments || "(none)"}`;
             ],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 4096,
+              maxOutputTokens: 8192,
             },
           }),
         }

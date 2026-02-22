@@ -28,6 +28,8 @@ import ScreenshotNode from "@/components/nodes/ScreenshotNode";
 import TextNode from "@/components/nodes/TextNode";
 import AttentionNode from "@/components/nodes/AttentionNode";
 import ImprovementNode from "@/components/nodes/ImprovementNode";
+import DividerNode from "@/components/nodes/DividerNode";
+import SectionNode from "@/components/nodes/SectionNode";
 import LabeledEdge from "@/components/edges/LabeledEdge";
 import Toolbar from "./Toolbar";
 import ScreenshotSidebar from "./ScreenshotSidebar";
@@ -40,6 +42,8 @@ const nodeTypes = {
   text: TextNode,
   attention: AttentionNode,
   improvement: ImprovementNode,
+  divider: DividerNode,
+  section: SectionNode,
 };
 
 const edgeTypes = {
@@ -99,6 +103,9 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
   const isDragging = useRef(false);
   const syncBlockedUntil = useRef(0);
   const hasInitialized = useRef(false);
+
+  // Edge selection: ref to track selected edge for z-reordering
+  const selectedEdgeRef = useRef<string | null>(null);
 
   // Block sync for a given duration (ms) after a local mutation
   const blockSync = useCallback((durationMs: number = 2000) => {
@@ -271,15 +278,23 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
         type: n.type,
         position: n.position,
         hidden: improvementHidden,
+        ...(n.type === "section" ? { zIndex: -1000 } : {}),
         style: {
           ...(n.type === "screenshot"
             ? { width: n.width || DEFAULT_SCREENSHOT_WIDTH }
             : n.type === "improvement"
               ? { width: n.width || 380 }
-              : {
-                  ...(n.width ? { width: n.width } : {}),
-                  ...(n.height ? { height: n.height } : {}),
-                }),
+              : n.type === "section"
+                ? { width: n.width || 800, height: n.height || 400 }
+                : n.type === "divider"
+                  ? {
+                      width: n.width || (n.data?.orientation === "vertical" ? 30 : 600),
+                      height: n.height || (n.data?.orientation === "vertical" ? 400 : 30),
+                    }
+                  : {
+                      ...(n.width ? { width: n.width } : {}),
+                      ...(n.height ? { height: n.height } : {}),
+                    }),
           ...highlightStyle,
         },
         data: {
@@ -298,13 +313,13 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
               ...(n.type !== "improvement" ? { height: Math.round(height) } : {}),
             });
           },
-          ...((n.type === "text" || n.type === "attention" || n.type === "improvement")
+          ...((n.type === "text" || n.type === "attention" || n.type === "improvement" || n.type === "divider" || n.type === "section")
             ? {
                 onTextChange: (text: string) => {
                   updateNodeDataMutation({
                     boardId,
                     nodeId: n.nodeId,
-                    data: { ...n.data, text },
+                    data: { ...n.data, [n.type === "divider" || n.type === "section" ? "label" : "text"]: text },
                   });
                   // Also update improvement title
                   if (n.type === "improvement") {
@@ -313,6 +328,28 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
                       updateImprovement({ improvementId: imp._id, title: text });
                     }
                   }
+                },
+              }
+            : {}),
+          ...(n.type === "section"
+            ? {
+                onColorChange: (color: string) => {
+                  updateNodeDataMutation({
+                    boardId,
+                    nodeId: n.nodeId,
+                    data: { ...n.data, color },
+                  });
+                },
+              }
+            : {}),
+          ...(n.type === "divider"
+            ? {
+                onOrientationChange: (orientation: string) => {
+                  updateNodeDataMutation({
+                    boardId,
+                    nodeId: n.nodeId,
+                    data: { ...n.data, orientation },
+                  });
                 },
               }
             : {}),
@@ -682,6 +719,63 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
     slackNotifyNewImprovement({ improvementId: result.id, boardId }).catch(() => {});
   }, [boardId, addNodeMutation, createImprovement, slackNotifyNewImprovement]);
 
+  // Add divider node
+  const handleAddDivider = useCallback(() => {
+    const nodeId = `divider-${nanoid(8)}`;
+    const position = { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 };
+
+    const newNode: Node = {
+      id: nodeId,
+      type: "divider",
+      position,
+      style: { width: 600, height: 30 },
+      data: {
+        label: "",
+        orientation: "horizontal",
+      },
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+    addNodeMutation({
+      boardId,
+      nodeId,
+      type: "divider",
+      position,
+      data: { label: "", orientation: "horizontal" },
+      width: 600,
+      height: 30,
+    });
+  }, [boardId, addNodeMutation]);
+
+  // Add section node
+  const handleAddSection = useCallback(() => {
+    const nodeId = `section-${nanoid(8)}`;
+    const position = { x: 50 + Math.random() * 100, y: 50 + Math.random() * 100 };
+
+    const newNode: Node = {
+      id: nodeId,
+      type: "section",
+      position,
+      zIndex: -1000,
+      style: { width: 800, height: 400 },
+      data: {
+        label: "Section",
+        color: "blue",
+      },
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+    addNodeMutation({
+      boardId,
+      nodeId,
+      type: "section",
+      position,
+      data: { label: "Section", color: "blue" },
+      width: 800,
+      height: 400,
+    });
+  }, [boardId, addNodeMutation]);
+
   // Generate improvement via AI
   const handleGenerateImprovement = useCallback(async (nodeId: string) => {
     setGeneratingNodeIds((prev) => new Set(prev).add(nodeId));
@@ -775,13 +869,33 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Track node selection
+  // Track node and edge selection
+  // When an edge is selected, move it to the end of the array so it renders on top.
+  // This ensures that when grabbing a shared handle, the selected edge is always grabbed.
   const onSelectionChange = useCallback(
-    ({ nodes: selectedNodes }: { nodes: Node[] }) => {
+    ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
       if (selectedNodes.length === 1) {
         setSelectedNodeId(selectedNodes[0].id);
       } else {
         setSelectedNodeId(null);
+      }
+
+      // Bring selected edge to front by moving it to end of array
+      if (selectedEdges.length === 1) {
+        const selId = selectedEdges[0].id;
+        if (selectedEdgeRef.current !== selId) {
+          selectedEdgeRef.current = selId;
+          setEdges((eds) => {
+            const idx = eds.findIndex((e) => e.id === selId);
+            if (idx === -1 || idx === eds.length - 1) return eds;
+            const reordered = [...eds];
+            const [edge] = reordered.splice(idx, 1);
+            reordered.push(edge);
+            return reordered;
+          });
+        }
+      } else {
+        selectedEdgeRef.current = null;
       }
     },
     []
@@ -813,6 +927,8 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
           onAddText={handleAddText}
           onAddAttention={handleAddAttention}
           onAddImprovement={handleAddImprovement}
+          onAddDivider={handleAddDivider}
+          onAddSection={handleAddSection}
           onFitView={() => fitView({ padding: 0.2 })}
           currentVersion={board?.version}
           improvementFilter={improvementFilter}
@@ -867,6 +983,8 @@ export default function FlowCanvas({ boardId, boardName }: FlowCanvasProps) {
                 }
                 if (node.type === "attention") return "#ef4444";
                 if (node.type === "improvement") return "#10b981";
+                if (node.type === "divider") return "#a1a1aa";
+                if (node.type === "section") return "#93c5fd";
                 return "#f59e0b";
               }}
               maskColor="rgba(0,0,0,0.1)"

@@ -359,7 +359,67 @@ export const applyProposals = mutation({
       .withIndex("by_board", (q) => q.eq("boardId", newBoardId))
       .collect();
 
+    // Helper: calculate optimal handle pair based on spatial relationship
+    function calcHandles(
+      sourcePos: { x: number; y: number },
+      targetPos: { x: number; y: number },
+      sourceWidth?: number,
+      targetWidth?: number,
+    ): { sourceHandle: string; targetHandle: string } {
+      const dx = targetPos.x - sourcePos.x;
+      const dy = targetPos.y - sourcePos.y;
+      const sw = sourceWidth || 220;
+      const tw = targetWidth || 220;
+
+      // Use center points for more accurate direction
+      const cx = (targetPos.x + tw / 2) - (sourcePos.x + sw / 2);
+      const cy = targetPos.y - sourcePos.y;
+
+      const absCx = Math.abs(cx);
+      const absCy = Math.abs(cy);
+
+      // Determine dominant direction
+      if (absCy > absCx * 0.6) {
+        // Primarily vertical
+        if (cy > 0) {
+          return { sourceHandle: "bottom-source", targetHandle: "top-target" };
+        } else {
+          return { sourceHandle: "top-source", targetHandle: "bottom-target" };
+        }
+      } else {
+        // Primarily horizontal
+        if (cx > 0) {
+          return { sourceHandle: "right-source", targetHandle: "left-target" };
+        } else {
+          return { sourceHandle: "left-source", targetHandle: "right-target" };
+        }
+      }
+    }
+
+    // Helper: find node by ID or label
+    function resolveNodeId(idOrLabel: string): string | null {
+      const byId = clonedNodes.find((n) => n.nodeId === idOrLabel);
+      if (byId) return byId.nodeId;
+      const byLabel = clonedNodes.find(
+        (n) =>
+          n.data?.label?.toLowerCase() === idOrLabel.toLowerCase() ||
+          n.data?.text?.toLowerCase() === idOrLabel.toLowerCase()
+      );
+      return byLabel ? byLabel.nodeId : null;
+    }
+
+    // Track annotation offsets per nearNode to avoid stacking
+    const annotationOffsets = new Map<string, number>();
+
     let addedNodeCount = 0;
+    // Track edges we create so we can set handles after all nodes exist
+    const pendingEdges: Array<{
+      edgeId: string;
+      source: string;
+      target: string;
+      label: string;
+      dbId: any;
+    }> = [];
 
     for (const proposal of args.proposals) {
       if (proposal.action === "addNode") {
@@ -376,6 +436,7 @@ export const applyProposals = mutation({
         }
 
         const nodeId = `ai-${Date.now()}-${addedNodeCount}`;
+        const missingScreenshot = true;
         await ctx.db.insert("nodes", {
           boardId: newBoardId,
           nodeId,
@@ -383,6 +444,8 @@ export const applyProposals = mutation({
           position,
           data: {
             text: `[AI Proposed] ${proposal.label || "New Screen"}${proposal.platform ? ` (${proposal.platform})` : ""}`,
+            missingScreenshot,
+            platform: proposal.platform || "",
           },
         });
 
@@ -394,13 +457,15 @@ export const applyProposals = mutation({
           nodeId,
           type: "text",
           position,
-          data: { text: proposal.label },
+          data: { text: proposal.label, missingScreenshot, platform: proposal.platform },
+          width: undefined,
+          height: undefined,
         });
 
         // Auto-connect from afterNode if specified
         if (proposal.afterNode) {
           const edgeId = `ai-edge-${Date.now()}-${addedNodeCount}`;
-          await ctx.db.insert("edges", {
+          const dbId = await ctx.db.insert("edges", {
             boardId: newBoardId,
             edgeId,
             source: proposal.afterNode,
@@ -408,33 +473,83 @@ export const applyProposals = mutation({
             label: proposal.connectionLabel || "",
             type: "labeled",
           });
+          pendingEdges.push({ edgeId, source: proposal.afterNode, target: nodeId, label: proposal.connectionLabel || "", dbId });
         }
 
         addedNodeCount++;
-      } else if (proposal.action === "addEdge") {
-        // Resolve node IDs — proposals may use nodeId or label
-        let sourceId = proposal.source;
-        let targetId = proposal.target;
 
-        // If source/target look like labels, try to find matching nodes
-        if (sourceId && !clonedNodes.find((n) => n.nodeId === sourceId)) {
-          const byLabel = clonedNodes.find(
-            (n) => n.data?.label?.toLowerCase() === sourceId.toLowerCase() ||
-                   n.data?.text?.toLowerCase() === sourceId.toLowerCase()
-          );
-          if (byLabel) sourceId = byLabel.nodeId;
+      } else if (proposal.action === "addNote" || proposal.action === "addAttention" || proposal.action === "addImprovement") {
+        // New annotation node types
+        const nodeType =
+          proposal.action === "addAttention" ? "attention" :
+          proposal.action === "addImprovement" ? "improvement" :
+          "text";
+
+        // Position near the referenced node
+        let position = { x: 200 + addedNodeCount * 250, y: 600 };
+        if (proposal.nearNode) {
+          const refNode = clonedNodes.find((n) => n.nodeId === proposal.nearNode);
+          if (refNode) {
+            // Stack annotations to the right of the screen, offset vertically
+            const offsetCount = annotationOffsets.get(proposal.nearNode) || 0;
+            const refWidth = refNode.width || 220;
+            position = {
+              x: refNode.position.x + refWidth + 30,
+              y: refNode.position.y + offsetCount * 80,
+            };
+            annotationOffsets.set(proposal.nearNode, offsetCount + 1);
+          }
         }
-        if (targetId && !clonedNodes.find((n) => n.nodeId === targetId)) {
-          const byLabel = clonedNodes.find(
-            (n) => n.data?.label?.toLowerCase() === targetId.toLowerCase() ||
-                   n.data?.text?.toLowerCase() === targetId.toLowerCase()
-          );
-          if (byLabel) targetId = byLabel.nodeId;
+
+        const nodeId = `ai-${nodeType}-${Date.now()}-${addedNodeCount}`;
+        const textContent = proposal.persona
+          ? `[${proposal.persona}] ${proposal.text || ""}`
+          : proposal.text || "";
+
+        await ctx.db.insert("nodes", {
+          boardId: newBoardId,
+          nodeId,
+          type: nodeType,
+          position,
+          data: { text: textContent },
+          width: 250,
+        });
+
+        clonedNodes.push({
+          _id: "" as any,
+          _creationTime: 0,
+          boardId: newBoardId,
+          nodeId,
+          type: nodeType,
+          position,
+          data: { text: textContent },
+          width: 250,
+          height: undefined,
+        });
+
+        // Auto-connect annotation to the nearNode
+        if (proposal.nearNode) {
+          const edgeId = `ai-edge-${Date.now()}-${addedNodeCount}`;
+          const dbId = await ctx.db.insert("edges", {
+            boardId: newBoardId,
+            edgeId,
+            source: proposal.nearNode,
+            target: nodeId,
+            label: "",
+            type: "labeled",
+          });
+          pendingEdges.push({ edgeId, source: proposal.nearNode, target: nodeId, label: "", dbId });
         }
+
+        addedNodeCount++;
+
+      } else if (proposal.action === "addEdge") {
+        let sourceId = resolveNodeId(proposal.source);
+        let targetId = resolveNodeId(proposal.target);
 
         if (sourceId && targetId) {
           const edgeId = `ai-edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          await ctx.db.insert("edges", {
+          const dbId = await ctx.db.insert("edges", {
             boardId: newBoardId,
             edgeId,
             source: sourceId,
@@ -442,6 +557,7 @@ export const applyProposals = mutation({
             label: proposal.label || "",
             type: "labeled",
           });
+          pendingEdges.push({ edgeId, source: sourceId, target: targetId, label: proposal.label || "", dbId });
         }
       } else if (proposal.action === "relabelEdge") {
         // Find edge by source + target
@@ -468,6 +584,48 @@ export const applyProposals = mutation({
         );
         if (edge) {
           await ctx.db.delete(edge._id);
+        }
+      }
+    }
+
+    // Step 3: Calculate smart handles for ALL AI-created edges
+    for (const pe of pendingEdges) {
+      const sourceNode = clonedNodes.find((n) => n.nodeId === pe.source);
+      const targetNode = clonedNodes.find((n) => n.nodeId === pe.target);
+      if (sourceNode && targetNode) {
+        const handles = calcHandles(
+          sourceNode.position,
+          targetNode.position,
+          sourceNode.width ?? undefined,
+          targetNode.width ?? undefined,
+        );
+        await ctx.db.patch(pe.dbId, {
+          sourceHandle: handles.sourceHandle,
+          targetHandle: handles.targetHandle,
+        });
+      }
+    }
+
+    // Step 4: Fix handles on existing cloned edges that had no handles set
+    const allEdges = await ctx.db
+      .query("edges")
+      .withIndex("by_board", (q) => q.eq("boardId", newBoardId))
+      .collect();
+    for (const edge of allEdges) {
+      if (!edge.sourceHandle && !edge.targetHandle) {
+        const sourceNode = clonedNodes.find((n) => n.nodeId === edge.source);
+        const targetNode = clonedNodes.find((n) => n.nodeId === edge.target);
+        if (sourceNode && targetNode) {
+          const handles = calcHandles(
+            sourceNode.position,
+            targetNode.position,
+            sourceNode.width ?? undefined,
+            targetNode.width ?? undefined,
+          );
+          await ctx.db.patch(edge._id, {
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
+          });
         }
       }
     }
