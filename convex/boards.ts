@@ -2,11 +2,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
 export const list = query({
-  args: { ownerId: v.string() },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
     const boards = await ctx.db
       .query("boards")
-      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
       .order("desc")
       .collect();
     return boards.filter((b) => !b.archived);
@@ -14,11 +13,10 @@ export const list = query({
 });
 
 export const listArchived = query({
-  args: { ownerId: v.string() },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
     const boards = await ctx.db
       .query("boards")
-      .withIndex("by_owner", (q) => q.eq("ownerId", args.ownerId))
       .order("desc")
       .collect();
     return boards.filter((b) => b.archived === true);

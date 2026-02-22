@@ -43,11 +43,11 @@ export default function DashboardPage() {
   const router = useRouter();
   const boards = useQuery(
     api.boards.list,
-    user ? { ownerId: user.id } : "skip"
+    user ? {} : "skip"
   ) as BoardDoc[] | undefined;
   const archivedBoards = useQuery(
     api.boards.listArchived,
-    user ? { ownerId: user.id } : "skip"
+    user ? {} : "skip"
   ) as BoardDoc[] | undefined;
   const createBoard = useMutation(api.boards.create);
   const removeBoard = useMutation(api.boards.remove);
